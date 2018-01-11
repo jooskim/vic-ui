@@ -377,6 +377,7 @@ public class PropFetcher implements ClientSessionEndListener {
                 }
             }
         }
+        _logger.info("(vmware/vic-ui#299) ServerInfo[] information" + sInfos);
 
         resultItem.properties = pvList.toArray(new PropertyValue[]{});
         return resultItem;
