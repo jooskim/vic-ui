@@ -28,9 +28,27 @@ pipeline:
       GS_PRIVATE_KEY: ${GS_PRIVATE_KEY}
     commands:
       - make vic-ui-plugins
+
+  e2e:
+    image: gcr.io/eminent-nation-87317/vic-integration-test:1.36
+    pull: true
+    environment:
+      PLUGIN_PACKAGES_FOLDER: scripts/plugin-packages
+      SELENIUM_ENDPOINT: tina.eng.vmware.com:4444
+      SCRATCH_FOLDER: /tmp/plugin-pkg-scratch
+    commands:
+      - export TAG_NUM=$(git describe --tags $(git rev-list --tags --max-count=1) | cut -c 2- | sed -e 's/\(-rc[[:digit:]]\)//' -e 's/\(-dev\)$//')
+      - echo TAG_NUM is ${TAG_NUM}
+      - ls -la ${PLUGIN_PACKAGES_FOLDER}/
+      - mkdir -p ${SCRATCH_FOLDER}/h5c
+      - ls -la ${PLUGIN_PACKAGES_FOLDER}/com.vmware.vic-v.${DRONE_BUILD_NUMBER}
+      #- sed "s/H5 Client Plugin for vSphere Integrated Containers Engine/vSphere Client Plugin for vSphere Integrated Containers Engine \(v${VIC_ENGINE_VER_STRING}\)/" plugin-package.xml > ${SCRATCH_FOLDER}/h5c/plugin-package.xml
+      #- cp -v ${SCRATCH_FOLDER}/h5c/plugin-package.xml ./
+      #- zip -9 -r ${SCRATCH_FOLDER}/h5c/com.vmware.vic-${VIC_UI_VER_STRING}.zip ./*
+      #- cp -v ${SCRATCH_FOLDER}/h5c/com.vmware.vic-${VIC_UI_VER_STRING}.zip ../
+      #- cd ${CURRENT_WORKING_DIR}
     when:
-      repo: vmware/vic-ui
-      branch: [ master, releases/*, refs/tags/* ]
+      status: success
 
   bundle:
     image: gcr.io/eminent-nation-87317/vic-integration-test:1.36
