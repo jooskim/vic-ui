@@ -33,6 +33,8 @@ pipeline:
     image: gcr.io/eminent-nation-87317/vic-integration-test:1.36
     pull: true
     environment:
+      BUILD_NUMBER: ${DRONE_BUILD_NUMBER}
+      COMMIT_URL: ${DRONE_COMMIT_LINK}
       PLUGIN_PACKAGES_FOLDER: scripts/plugin-packages
       SELENIUM_ENDPOINT: tina.eng.vmware.com:4444
       SCRATCH_FOLDER: /tmp/plugin-pkg-scratch
@@ -41,8 +43,8 @@ pipeline:
       - echo TAG_NUM is ${TAG_NUM}
       - ls -la ${PLUGIN_PACKAGES_FOLDER}/
       - mkdir -p ${SCRATCH_FOLDER}/h5c
-      - ls -la ${PLUGIN_PACKAGES_FOLDER}/com.vmware.vic-v.${DRONE_BUILD_NUMBER}
-      #- sed "s/H5 Client Plugin for vSphere Integrated Containers Engine/vSphere Client Plugin for vSphere Integrated Containers Engine \(v${VIC_ENGINE_VER_STRING}\)/" plugin-package.xml > ${SCRATCH_FOLDER}/h5c/plugin-package.xml
+      - cd ${PLUGIN_PACKAGES_FOLDER}/com.vmware.vic-v${TAG_NUM}.${DRONE_BUILD_NUMBER}
+      - sed "s/H5 Client Plugin for vSphere Integrated Containers Engine/vSphere Client Plugin for vSphere Integrated Containers Engine \(v${VIC_ENGINE_VER_STRING}\)/" plugin-package.xml > ${SCRATCH_FOLDER}/h5c/plugin-package.xml
       #- cp -v ${SCRATCH_FOLDER}/h5c/plugin-package.xml ./
       #- zip -9 -r ${SCRATCH_FOLDER}/h5c/com.vmware.vic-${VIC_UI_VER_STRING}.zip ./*
       #- cp -v ${SCRATCH_FOLDER}/h5c/com.vmware.vic-${VIC_UI_VER_STRING}.zip ../
