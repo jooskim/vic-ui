@@ -30,7 +30,7 @@ pipeline:
       - make vic-ui-plugins
 
   e2e:
-    image: gcr.io/eminent-nation-87317/vic-integration-test:1.36
+    image: gcr.io/eminent-nation-87317/vic-integration-test:1.39
     pull: true
     environment:
       BUILD_NUMBER: ${DRONE_BUILD_NUMBER}
@@ -38,17 +38,13 @@ pipeline:
       PLUGIN_PACKAGES_FOLDER: scripts/plugin-packages
       SELENIUM_ENDPOINT: tina.eng.vmware.com:4444
       SCRATCH_FOLDER: /tmp/plugin-pkg-scratch
+      VIC_NIGHTLY_MACHINE_PW: ${VIC_NIGHTLY_MACHINE_PW}
+      JENKINS_USER: ${JENKINS_USER}
+      JENKINS_API_TOKEN: ${JENKINS_API_TOKEN}
     commands:
-      - export TAG_NUM=$(git describe --tags $(git rev-list --tags --max-count=1) | cut -c 2- | sed -e 's/\(-rc[[:digit:]]\)//' -e 's/\(-dev\)$//')
-      - echo TAG_NUM is ${TAG_NUM}
-      - ls -la ${PLUGIN_PACKAGES_FOLDER}/
-      - mkdir -p ${SCRATCH_FOLDER}/h5c
-      - cd ${PLUGIN_PACKAGES_FOLDER}/com.vmware.vic-v${TAG_NUM}.${DRONE_BUILD_NUMBER}
-      - sed "s/H5 Client Plugin for vSphere Integrated Containers Engine/vSphere Client Plugin for vSphere Integrated Containers Engine \(v${VIC_ENGINE_VER_STRING}\)/" plugin-package.xml > ${SCRATCH_FOLDER}/h5c/plugin-package.xml
-      #- cp -v ${SCRATCH_FOLDER}/h5c/plugin-package.xml ./
-      #- zip -9 -r ${SCRATCH_FOLDER}/h5c/com.vmware.vic-${VIC_UI_VER_STRING}.zip ./*
-      #- cp -v ${SCRATCH_FOLDER}/h5c/com.vmware.vic-${VIC_UI_VER_STRING}.zip ../
-      #- cd ${CURRENT_WORKING_DIR}
+      - export FOLDER_NAME=$(find ./scripts/plugin-packages -name "com.vmware.vic-*" -type d | head -1 | cut -d/ -f 3)
+      - curl -X POST -H "$(curl -s 'http://${JENKINS_USER}:${JENKINS_API_TOKEN}@smithers.vcna.io:8080/crumbIssuer/api/xml?xpath=concat(//crumbRequestField,":",//crumb)')" http://${JENKINS_USER}:${JENKINS_API_TOKEN}@smithers.vcna.io:8080/job/vic-ui-integration-test/buildWithParameters?DRONE_BUILD_NUMBER=${BUILD_NUMBER}
+      - flock -x -w 600 ./scripts/e2e.lock ./scripts/prepare-plugin-for-e2e.sh -o 10.161.235.221 -v louise.eng.vmware.com -p $FOLDER_NAME
     when:
       status: success
 

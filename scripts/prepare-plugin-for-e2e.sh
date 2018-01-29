@@ -25,7 +25,7 @@ CURRENT_WORKING_DIR=$(pwd)
 SCRIPTS_DIR=$(cd $(dirname ${BASH_SOURCE[0]}) && pwd)
 
 show_error() {
-    echo "Usage: $0 --vcip vc_ip --ovaip vic_appliance_ip "
+    echo "Usage: $0 -v vc_ip -o vic_appliance_ip -p plugin_folder"
     exit 1
 }
 
@@ -34,46 +34,40 @@ if [ -z $BUILD_NUMBER ] ; then
 fi
 
 #TAG_NUM=$(git describe --tags $(git rev-list --tags --max-count=1) | cut -c 2- | sed -e 's/\(-rc[[:digit:]]\)//' -e 's/\(-dev\)$//')
-ARGS=$(getopt --options "" --longoptions "ovaip:vcip:plugin:" -- "$@")
 
-while true ; do
-    case $1 in
-        --ovaip)
-            PRODUCT_VM_IP=$2
-            shift
+while getopts :o:v:p: flag ; do
+    case $flag in
+        o)
+            PRODUCT_VM_IP=$OPTARG
             ;;
-        --vcip)
-            VC_IP=$2
-            shift
+        v)
+            VC_IP=$OPTARG
             ;;
-        --plugin)
-            PLUGIN_FOLDERNAME=$2
-            shift
+        p)
+            PLUGIN_FOLDERNAME=$OPTARG
             ;;
-        --)
-            shift
-            break
+        \?)
+            show_error
             ;;
         *)
-            break
+            show_error
             ;;
     esac
-    shift
 done
 
 if [ -z $PRODUCT_VM_IP ] ; then
     echo "No IP was provided for the VIC Product appliance!"
-    exit 1
+    show_error
 fi
 
 if [ -z $VC_IP ] ; then
     echo "No IP was provided for the vCenter Server appliance!"
-    exit 1
+    show_error
 fi
 
 if [ -z $PLUGIN_FOLDERNAME ] ; then
     echo "Please provide the plugin folder name. e.g. com.vmware.vic-v${UI_VERSION}"
-    exit 1
+    show_error
 fi
 
 NEW_PLUGIN_PATH="$SCRIPTS_DIR/plugin-packages/com.vmware.vic-v${UI_VERSION}.$BUILD_NUMBER"
@@ -99,14 +93,65 @@ cd plugins
 unzip -od ./tmp vic-service.jar
 echo "uiVersion=v${UI_VERSION}.$BUILD_NUMBER - ${COMMIT_URL}" > ./tmp/configs.properties
 cd tmp
-zip -9r ../new-vic-service.jar ./
+zip -9r ../new-vic-service.jar ./ >/dev/null
 cd ../ && rm -rf tmp vic-service.jar && mv new-vic-service.jar vic-service.jar
 
 # cd .. to com.vmware.vic-v${UI_VERSION}.$BUILD_NUMBER and rezip the contents
-cd ../ && zip -9r "../com.vmware.vic-v${UI_VERSION}.$BUILD_NUMBER.zip" ./
+NEW_PLUGIN_ZIP="com.vmware.vic-v${UI_VERSION}.$BUILD_NUMBER.zip"
+cd ../ && zip -9r "../$NEW_PLUGIN_ZIP" ./ >/dev/null
 
-# all contents are now up to date. scp it to the OVA appliance
-nc -vz $PRODUCT_VM_IP 443
+# all contents are now updated. scp it to the OVA appliance
+nc -vz $PRODUCT_VM_IP 22 >/dev/null 2>/dev/null
+PRODUCT_VM_REACHABLE=$?
+
+if [ $PRODUCT_VM_REACHABLE -gt 0 ] ; then
+    echo "VIC Appliance was not found at $PRODUCT_VM_IP!"
+    exit 1
+fi
+
+# scp the plugin zip file to ${PRODUCT_VM_IP}
+sshpass -p 'Admin!23' scp -o StrictHostKeyChecking=no -r ../com.vmware.vic-v${UI_VERSION}.$BUILD_NUMBER.zip root@${PRODUCT_VM_IP}:/opt/vmware/fileserver/files/
+
+# register the plugin with the VC testbed at $VC_IP
+VC_FINGERPRINT="$(echo -n | openssl s_client -connect $VC_IP:443 2>/dev/null | openssl x509 -fingerprint -noout -sha1 | cut -d = -f 2)"
+APPLIANCE_FINGERPRINT="$(echo -n | openssl s_client -connect $PRODUCT_VM_IP:9443 2>/dev/null | openssl x509 -fingerprint -noout -sha1 | cut -d = -f 2)" # does not work on macOS for this VM
+
+echo VC FINGERPRINT: $VC_FINGERPRINT
+echo APPLIANCE_FINGERPRINT: $APPLIANCE_FINGERPRINT
+
+# download https://storage.googleapis.com/vic-engine-builds/vic_15800.tar.gz and get vic-ui-linux ready
+VIC_UI_BINARY_ROOT="/tmp/vic_15800"
+VIC_UI_LINUX_BIN="$VIC_UI_BINARY_ROOT/vic-ui-linux"
+mkdir -p $VIC_UI_BINARY_ROOT
+
+if [ ! -f $VIC_UI_LINUX_BIN ] ; then
+    echo
+    echo vic engine 15800 was not found. downloading...
+    curl -k https://storage.googleapis.com/vic-engine-builds/vic_15800.tar.gz -o $VIC_UI_BINARY_ROOT.tar.gz 2>/dev/null
+    tar -xvf $VIC_UI_BINARY_ROOT.tar.gz -C $VIC_UI_BINARY_ROOT --strip 1
+
+fi
+
+# register the plugin with vCenter Server
+$VIC_UI_LINUX_BIN install \
+    --target $VC_IP \
+    --user administrator@vsphere.local \
+    --password 'Admin!23' \
+    --thumbprint $VC_FINGERPRINT \
+    --force \
+    --configure-ova \
+    --type=VicApplianceVM \
+    --company VMware \
+    --key com.vmware.vic \
+    --name "vSphere Integrated Containers UI Plugin" \
+    --summary E2E \
+    --server-thumbprint $APPLIANCE_FINGERPRINT \
+    --version ${UI_VERSION}.$BUILD_NUMBER \
+    --url https://${PRODUCT_VM_IP}:9443/files/$NEW_PLUGIN_ZIP
+
+# restart the vSphere Client service
+sshpass -p 'vmware' ssh -o StrictHostKeyChecking=no root@${VC_IP} "service-control --stop vsphere-ui && service-control --start vsphere-ui"
 
 # cd back to where we were
 cd $CURRENT_WORKING_DIR
+echo Done registering the plugin with VC. Ready for E2E testing.
